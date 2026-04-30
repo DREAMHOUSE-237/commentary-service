@@ -1,0 +1,59 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Comment {
+  id            String    @id @default(uuid())
+  content       String    @db.Text
+  authorId      String    @map("author_id")
+  publicationId String    @map("publication_id")
+  parentId      String?   @map("parent_id")
+
+  // active | tombstoned | deleted | moderated
+  status        String    @default("active") @db.VarChar(20)
+  deletedAt     DateTime? @map("deleted_at")
+
+  parent  Comment?  @relation("Replies", fields: [parentId], references: [id], onDelete: SetNull)
+  replies Comment[] @relation("Replies")
+  likes   CommentLike[]
+  reports Report[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt      @map("updated_at")
+
+  @@index([publicationId, createdAt(sort: Desc)])
+  @@index([parentId])
+  @@index([authorId])
+  @@map("comments")
+}
+
+model CommentLike {
+  id        String   @id @default(uuid())
+  commentId String   @map("comment_id")
+  userId    String   @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  comment Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@unique([commentId, userId])
+  @@map("comment_likes")
+}
+
+model Report {
+  id         String   @id @default(uuid())
+  commentId  String   @map("comment_id")
+  reportedBy String   @map("reported_by")
+  reason     String   @db.Text
+  status     String   @default("pending") @db.VarChar(20)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  comment Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@index([commentId])
+  @@map("reports")
+}
