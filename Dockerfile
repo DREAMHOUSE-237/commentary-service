@@ -7,7 +7,7 @@ WORKDIR /app
 
 # Install dependencies
 COPY package*.json ./
-RUN npm ci --only=production
+RUN npm ci
 
 # Copy source
 COPY . .
@@ -17,6 +17,9 @@ RUN npx prisma generate
 
 # Build NestJS
 RUN npm run build
+
+# Remove dev dependencies after build
+RUN npm prune --production
 
 EXPOSE 3003
 
