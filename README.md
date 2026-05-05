@@ -1,2 +1,2 @@
 # commentary-service
-This repository contains the commentary service developped using the NestJs
+This repository contains the commentary service developped using the framework NestJs
