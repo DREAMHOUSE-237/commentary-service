@@ -1,2 +1,2 @@
-# auth-service
-This repository contains the authentication service developped using the framework Django
+# commentary-service
+This repository contains the commentary service developped using the NestJs
