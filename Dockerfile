@@ -23,4 +23,4 @@ RUN npm prune --production
 
 EXPOSE 3003
 
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main"]
+CMD ["sh", "-c", "npx prisma db push --accept-data-loss && node dist/main"]
