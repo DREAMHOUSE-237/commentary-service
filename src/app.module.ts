@@ -2,6 +2,7 @@ import { Module }         from '@nestjs/common';
 import { ConfigModule }   from '@nestjs/config';
 import { PrismaModule }   from './prisma/prisma.module';
 import { CommentsModule } from './comments/comments.module';
+import { EurekaService }  from './eureka.service';
 
 @Module({
   imports: [
@@ -9,5 +10,6 @@ import { CommentsModule } from './comments/comments.module';
     PrismaModule,
     CommentsModule,
   ],
+  providers: [EurekaService],
 })
 export class AppModule {}
