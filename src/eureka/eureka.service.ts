@@ -7,16 +7,20 @@ export class EurekaService implements OnModuleInit, OnModuleDestroy {
   private client: Eureka;
 
   onModuleInit(): void {
-    const appHost    = process.env.APP_HOST       ?? 'localhost';
-    const appPort    = parseInt(process.env.APP_PORT  ?? '3003', 10);
-    const eurekaHost = process.env.EUREKA_HOST    ?? 'localhost';
-    const eurekaPort = parseInt(process.env.EUREKA_PORT ?? '8761', 10);
-    const ipAddr     = process.env.EUREKA_IP_ADDR ?? '127.0.0.1';
+    const appName    = 'COMMENT-SERVICE';
+    const appPort    = parseInt(process.env.APP_PORT      ?? '3003', 10);
+    const eurekaHost = process.env.EUREKA_HOST            ?? 'localhost';
+    const eurekaPort = parseInt(process.env.EUREKA_PORT   ?? '8761', 10);
+    const ipAddr     = process.env.EUREKA_IP_ADDR         ?? '127.0.0.1';
+
+    // Format instanceId identique aux autres services : IP:NOM:PORT
+    const instanceId = `${ipAddr}:${appName}:${appPort}`;
 
     this.client = new Eureka({
       instance: {
-        app:        'COMMENT-SERVICE',
-        hostName:   appHost,
+        app:        appName,
+        instanceId: instanceId,
+        hostName:   ipAddr,       // IP privée, comme les autres services
         ipAddr:     ipAddr,
         port: {
           '$':        appPort,
@@ -27,9 +31,9 @@ export class EurekaService implements OnModuleInit, OnModuleDestroy {
           '@class': 'com.netflix.appinfo.InstanceInfo$DefaultDataCenterInfo',
           name:     'MyOwn',
         },
-        statusPageUrl:  `http://${appHost}:${appPort}/info`,
-        healthCheckUrl: `http://${appHost}:${appPort}/health`,
-        homePageUrl:    `http://${appHost}:${appPort}/`,
+        statusPageUrl:  `http://${ipAddr}:${appPort}/info`,
+        healthCheckUrl: `http://${ipAddr}:${appPort}/health`,
+        homePageUrl:    `http://${ipAddr}:${appPort}/`,
       },
       eureka: {
         host:              eurekaHost,
@@ -44,7 +48,7 @@ export class EurekaService implements OnModuleInit, OnModuleDestroy {
       if (error) {
         this.logger.warn(`Eureka indisponible : ${error.message}`);
       } else {
-        this.logger.log("Enregistre aupres d'Eureka avec succes");
+        this.logger.log(`Enregistre aupres d'Eureka : ${instanceId}`);
       }
     });
   }
