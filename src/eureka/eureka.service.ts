@@ -7,7 +7,7 @@ export class EurekaService implements OnModuleInit, OnModuleDestroy {
   private client: Eureka;
 
   onModuleInit(): void {
-    const appName    = 'COMMENT-SERVICE';
+    const appName    = 'COMMENTARY-SERVICE';
     const appPort    = parseInt(process.env.APP_PORT      ?? '3003', 10);
     const eurekaHost = process.env.EUREKA_HOST            ?? 'localhost';
     const eurekaPort = parseInt(process.env.EUREKA_PORT   ?? '8761', 10);
@@ -26,7 +26,7 @@ export class EurekaService implements OnModuleInit, OnModuleDestroy {
           '$':        appPort,
           '@enabled': true,
         },
-        vipAddress: 'comment-service',
+        vipAddress: 'commentary-service',
         dataCenterInfo: {
           '@class': 'com.netflix.appinfo.InstanceInfo$DefaultDataCenterInfo',
           name:     'MyOwn',
