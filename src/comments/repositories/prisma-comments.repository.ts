@@ -7,9 +7,8 @@ import {
   CursorPaginationResult,
   FindByPublicationParams,
 } from '../interfaces/comments-repository.interface';
-import { Comment, Prisma } from '@prisma/client';
+import { Comment, CommentLike, Prisma } from '@prisma/client';
 
-// Sélection réutilisable — modifier ici propage sur toutes les méthodes
 const COMMENT_SELECT = {
   id:            true,
   content:       true,
@@ -27,8 +26,6 @@ const COMMENT_SELECT = {
 export class PrismaCommentsRepository implements ICommentsRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  // ── CREATE ──────────────────────────────────────────────────
-
   async create(authorId: string, dto: CreateCommentDto): Promise<Comment> {
     return this.prisma.comment.create({
       data: {
@@ -41,19 +38,13 @@ export class PrismaCommentsRepository implements ICommentsRepository {
     });
   }
 
-  // ── READ — liste paginée par curseur ────────────────────────
-
-  async findByPublication(
-    p: FindByPublicationParams,
-  ): Promise<CursorPaginationResult<CommentWithRelations>> {
+  async findByPublication(p: FindByPublicationParams): Promise<CursorPaginationResult<CommentWithRelations>> {
     const { publicationId, limit = 20, cursor, sort = 'desc' } = p;
-    const take = limit + 1; // +1 pour détecter hasMore sans COUNT(*)
-
+    const take = limit + 1;
     const rows = await this.prisma.comment.findMany({
-      where: { publicationId, parentId: null, status: 'active' },
-      select: {
+      where:   { publicationId, parentId: null, status: 'active' },
+      select:  {
         ...COMMENT_SELECT,
-        // Charge les 3 premières réponses pour éviter un aller-retour supplémentaire
         replies: {
           where:   { status: 'active' },
           orderBy: { createdAt: 'asc' },
@@ -65,15 +56,11 @@ export class PrismaCommentsRepository implements ICommentsRepository {
       take,
       ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
     });
-
     const hasMore    = rows.length > limit;
     const data       = hasMore ? rows.slice(0, limit) : rows;
     const nextCursor = hasMore ? data[data.length - 1].id : null;
-
     return { data, nextCursor, hasMore };
   }
-
-  // ── READ — toutes les réponses d'un commentaire ─────────────
 
   async findReplies(parentId: string): Promise<CommentWithRelations[]> {
     return this.prisma.comment.findMany({
@@ -83,31 +70,26 @@ export class PrismaCommentsRepository implements ICommentsRepository {
     });
   }
 
-  // ── READ — utilitaires ──────────────────────────────────────
-
   async findById(id: string): Promise<Comment | null> {
     return this.prisma.comment.findUnique({ where: { id } });
   }
 
   async existsById(id: string): Promise<boolean> {
-    const row = await this.prisma.comment.findFirst({
-      where:  { id },
-      select: { id: true },
-    });
+    const row = await this.prisma.comment.findFirst({ where: { id }, select: { id: true } });
     return row !== null;
   }
 
   async countActiveReplies(parentId: string): Promise<number> {
-    return this.prisma.comment.count({
-      where: { parentId, status: 'active' },
-    });
+    return this.prisma.comment.count({ where: { parentId, status: 'active' } });
   }
 
   async countReports(commentId: string): Promise<number> {
     return this.prisma.report.count({ where: { commentId } });
   }
 
-  // ── SOFT DELETE ──────────────────────────────────────────────
+  async countLikes(commentId: string): Promise<number> {
+    return this.prisma.commentLike.count({ where: { commentId } });
+  }
 
   async softDelete(id: string): Promise<Comment> {
     return this.prisma.comment.update({
@@ -116,31 +98,48 @@ export class PrismaCommentsRepository implements ICommentsRepository {
     });
   }
 
-  // Tombstone : contenu effacé (RGPD), nœud conservé pour ses réponses
   async tombstone(id: string): Promise<Comment> {
     return this.prisma.comment.update({
       where: { id },
-      data:  {
-        status:    'tombstoned',
-        content:   '[Commentaire supprimé]',
-        deletedAt: new Date(),
-      },
+      data:  { status: 'tombstoned', content: '[Commentaire supprimé]', deletedAt: new Date() },
     });
   }
 
   async moderate(id: string): Promise<Comment> {
-    return this.prisma.comment.update({
-      where: { id },
-      data:  { status: 'moderated' },
-    });
+    return this.prisma.comment.update({ where: { id }, data: { status: 'moderated' } });
   }
 
-  // Suppression en cascade quand une publication est supprimée
   async softDeleteByPublicationId(publicationId: string): Promise<number> {
     const result = await this.prisma.comment.updateMany({
       where: { publicationId, status: 'active' },
       data:  { status: 'deleted', deletedAt: new Date() },
     });
     return result.count;
+  }
+
+  async addLike(commentId: string, userId: string): Promise<CommentLike> {
+    return this.prisma.commentLike.create({ data: { commentId, userId } });
+  }
+
+  async removeLike(commentId: string, userId: string): Promise<void> {
+    await this.prisma.commentLike.deleteMany({ where: { commentId, userId } });
+  }
+
+  async hasLiked(commentId: string, userId: string): Promise<boolean> {
+    const row = await this.prisma.commentLike.findFirst({
+      where: { commentId, userId }, select: { id: true },
+    });
+    return row !== null;
+  }
+
+  async addReport(commentId: string, reportedBy: string, reason: string): Promise<void> {
+    await this.prisma.report.create({ data: { commentId, reportedBy, reason } });
+  }
+
+  async hasReported(commentId: string, userId: string): Promise<boolean> {
+    const row = await this.prisma.report.findFirst({
+      where: { commentId, reportedBy: userId }, select: { id: true },
+    });
+    return row !== null;
   }
 }

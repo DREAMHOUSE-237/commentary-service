@@ -1,7 +1,6 @@
-import { Comment } from '@prisma/client';
+import { Comment, CommentLike } from '@prisma/client';
 import { CreateCommentDto } from '../dto/create-comment.dto';
 
-// Type enrichi avec les relations chargées
 export type CommentWithRelations = Comment & {
   replies?: CommentWithRelations[];
   _count?:  { likes: number; replies: number };
@@ -28,8 +27,14 @@ export interface ICommentsRepository {
   existsById(id: string): Promise<boolean>;
   countActiveReplies(parentId: string): Promise<number>;
   countReports(commentId: string): Promise<number>;
+  countLikes(commentId: string): Promise<number>;
   softDelete(id: string): Promise<Comment>;
   tombstone(id: string): Promise<Comment>;
   moderate(id: string): Promise<Comment>;
   softDeleteByPublicationId(publicationId: string): Promise<number>;
+  addLike(commentId: string, userId: string): Promise<CommentLike>;
+  removeLike(commentId: string, userId: string): Promise<void>;
+  hasLiked(commentId: string, userId: string): Promise<boolean>;
+  addReport(commentId: string, reportedBy: string, reason: string): Promise<void>;
+  hasReported(commentId: string, userId: string): Promise<boolean>;
 }

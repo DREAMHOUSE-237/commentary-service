@@ -1,8 +1,3 @@
-/**
- * Hiérarchie d'erreurs métier — indépendantes de NestJS et du transport HTTP.
- * Transportables dans n'importe quel contexte (HTTP, RabbitMQ, CLI).
- */
-
 export class CommentDomainError extends Error {
   constructor(message: string, public readonly code: string) {
     super(message);
@@ -24,10 +19,7 @@ export class CommentDepthExceededError extends CommentDomainError {
 
 export class CommentNotActiveError extends CommentDomainError {
   constructor(id: string, status: string) {
-    super(
-      `Impossible de répondre à un commentaire avec le statut "${status}" (id: ${id})`,
-      'COMMENT_NOT_ACTIVE',
-    );
+    super(`Impossible de répondre à un commentaire avec le statut "${status}" (id: ${id})`, 'COMMENT_NOT_ACTIVE');
   }
 }
 
@@ -40,5 +32,17 @@ export class CommentForbiddenError extends CommentDomainError {
 export class CommentContentInvalidError extends CommentDomainError {
   constructor(reason: string) {
     super(`Contenu invalide : ${reason}`, 'COMMENT_CONTENT_INVALID');
+  }
+}
+
+export class CommentAlreadyLikedError extends CommentDomainError {
+  constructor() {
+    super('Vous avez déjà liké ce commentaire', 'COMMENT_ALREADY_LIKED');
+  }
+}
+
+export class CommentAlreadyReportedError extends CommentDomainError {
+  constructor() {
+    super('Vous avez déjà signalé ce commentaire', 'COMMENT_ALREADY_REPORTED');
   }
 }

@@ -1,8 +1,9 @@
-import { IsString, IsUUID, IsOptional, MinLength, MaxLength } from 'class-validator';
+import { IsString, IsOptional, MinLength, MaxLength } from 'class-validator';
 import { Transform } from 'class-transformer';
 
 export class CreateCommentDto {
-  @IsUUID('4', { message: 'publicationId doit être un UUID v4 valide' })
+  @IsString()
+  @MinLength(1, { message: 'publicationId ne peut pas être vide' })
   publicationId: string;
 
   @IsString()
@@ -12,6 +13,7 @@ export class CreateCommentDto {
   content: string;
 
   @IsOptional()
-  @IsUUID('4', { message: 'parentId doit être un UUID v4 valide' })
+  @IsString()
+  @MinLength(1)
   parentId?: string;
 }

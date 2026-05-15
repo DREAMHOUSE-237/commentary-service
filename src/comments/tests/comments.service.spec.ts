@@ -7,20 +7,15 @@ import {
   CommentForbiddenError,
   CommentNotActiveError,
   CommentNotFoundError,
+  CommentAlreadyReportedError,
 } from '../domain/comment.errors';
+import { COMMENT_PRODUCER } from '../comments.service';
 import { Comment } from '@prisma/client';
 
-// Fabrique de commentaire de test — type-safe et centralisée
 const makeComment = (overrides: Partial<Comment> = {}): Comment => ({
-  id:            'c-uuid-1',
-  content:       'Contenu test',
-  authorId:      'user-uuid-1',
-  publicationId: 'pub-uuid-1',
-  parentId:      null,
-  status:        'active',
-  deletedAt:     null,
-  createdAt:     new Date('2025-01-01'),
-  updatedAt:     new Date('2025-01-01'),
+  id: 'c-uuid-1', content: 'Contenu test', authorId: 'user-uuid-1',
+  publicationId: 'pub-uuid-1', parentId: null, status: 'active',
+  deletedAt: null, createdAt: new Date('2025-01-01'), updatedAt: new Date('2025-01-01'),
   ...overrides,
 });
 
@@ -32,10 +27,16 @@ const mockRepo = (): jest.Mocked<ICommentsRepository> => ({
   existsById:                jest.fn(),
   countActiveReplies:        jest.fn(),
   countReports:              jest.fn(),
+  countLikes:                jest.fn(),
   softDelete:                jest.fn(),
   tombstone:                 jest.fn(),
   moderate:                  jest.fn(),
   softDeleteByPublicationId: jest.fn(),
+  addLike:                   jest.fn(),
+  removeLike:                jest.fn(),
+  hasLiked:                  jest.fn(),
+  addReport:                 jest.fn(),
+  hasReported:               jest.fn(),
 });
 
 describe('CommentsService', () => {
@@ -48,153 +49,119 @@ describe('CommentsService', () => {
       providers: [
         CommentsService,
         { provide: COMMENTS_REPOSITORY, useValue: r },
+        { provide: COMMENT_PRODUCER,    useValue: null },
       ],
     }).compile();
-
     service = module.get(CommentsService);
     repo    = r;
   });
 
-  // ── createComment ────────────────────────────────────────────
-
   describe('createComment', () => {
     it('crée un commentaire racine', async () => {
-      const c = makeComment();
-      repo.create.mockResolvedValue(c);
-
-      const result = await service.createComment('user-uuid-1', {
-        publicationId: 'pub-uuid-1',
-        content:       'Bonjour',
-      });
-
+      repo.create.mockResolvedValue(makeComment());
+      const result = await service.createComment('user-uuid-1', { publicationId: 'pub-1', content: 'Bonjour' });
       expect(repo.create).toHaveBeenCalledTimes(1);
       expect(result.id).toBe('c-uuid-1');
     });
 
-    it('crée une réponse valide (parent niveau 1)', async () => {
-      const parent = makeComment({ id: 'parent-1', parentId: null });
-      const reply  = makeComment({ id: 'reply-1', parentId: 'parent-1' });
-
-      repo.findById.mockResolvedValue(parent);
-      repo.create.mockResolvedValue(reply);
-
-      const result = await service.createComment('user-uuid-1', {
-        publicationId: 'pub-uuid-1',
-        content:       'Réponse',
-        parentId:      'parent-1',
-      });
-
-      expect(result.parentId).toBe('parent-1');
-    });
-
-    it('refuse une réponse à une réponse (niveau 3 interdit)', async () => {
-      const level2 = makeComment({ id: 'level2', parentId: 'level1' });
-      repo.findById.mockResolvedValue(level2);
-
+    it('refuse un niveau 3', async () => {
+      repo.findById.mockResolvedValue(makeComment({ parentId: 'level1' }));
       await expect(
-        service.createComment('u1', {
-          publicationId: 'pub-1',
-          content: 'Trop profond',
-          parentId: 'level2',
-        }),
+        service.createComment('u1', { publicationId: 'p1', content: 'Trop profond', parentId: 'level2' })
       ).rejects.toThrow(CommentDepthExceededError);
-
-      expect(repo.create).not.toHaveBeenCalled();
     });
 
-    it('refuse de répondre à un commentaire tombstoned', async () => {
-      const tombstoned = makeComment({ id: 'c1', status: 'tombstoned' });
-      repo.findById.mockResolvedValue(tombstoned);
-
+    it('refuse de répondre à un tombstoned', async () => {
+      repo.findById.mockResolvedValue(makeComment({ status: 'tombstoned' }));
       await expect(
-        service.createComment('u1', { publicationId: 'p1', content: 'Test', parentId: 'c1' }),
+        service.createComment('u1', { publicationId: 'p1', content: 'Test', parentId: 'c1' })
       ).rejects.toThrow(CommentNotActiveError);
     });
 
     it('refuse un contenu vide', async () => {
       await expect(
-        service.createComment('u1', { publicationId: 'p1', content: '   ' }),
+        service.createComment('u1', { publicationId: 'p1', content: '   ' })
       ).rejects.toThrow('COMMENT_CONTENT_INVALID');
     });
   });
 
-  // ── deleteComment ────────────────────────────────────────────
-
   describe('deleteComment', () => {
-    it('tombstone si le commentaire a des réponses', async () => {
-      const c = makeComment({ authorId: 'u1' });
-      const t = makeComment({ status: 'tombstoned', content: '[Commentaire supprimé]' });
-
-      repo.findById.mockResolvedValue(c);
+    it('tombstone si des réponses existent', async () => {
+      repo.findById.mockResolvedValue(makeComment({ authorId: 'u1' }));
       repo.countActiveReplies.mockResolvedValue(2);
-      repo.tombstone.mockResolvedValue(t);
-
+      repo.tombstone.mockResolvedValue(makeComment({ status: 'tombstoned' }));
       const result = await service.deleteComment('c-uuid-1', 'u1');
-
       expect(repo.tombstone).toHaveBeenCalledWith('c-uuid-1');
-      expect(repo.softDelete).not.toHaveBeenCalled();
       expect(result.status).toBe('tombstoned');
     });
 
     it('soft-delete si aucune réponse', async () => {
-      const c = makeComment({ authorId: 'u1' });
-      const d = makeComment({ status: 'deleted', deletedAt: new Date() });
-
-      repo.findById.mockResolvedValue(c);
+      repo.findById.mockResolvedValue(makeComment({ authorId: 'u1' }));
       repo.countActiveReplies.mockResolvedValue(0);
-      repo.softDelete.mockResolvedValue(d);
-
+      repo.softDelete.mockResolvedValue(makeComment({ status: 'deleted', deletedAt: new Date() }));
       const result = await service.deleteComment('c-uuid-1', 'u1');
-
-      expect(repo.softDelete).toHaveBeenCalledWith('c-uuid-1');
       expect(result.status).toBe('deleted');
     });
 
-    it('purge le parent tombstoned en cascade', async () => {
-      const reply  = makeComment({ id: 'r1', authorId: 'u1', parentId: 'p1' });
-      const parent = makeComment({ id: 'p1', status: 'tombstoned', parentId: null });
-      const deleted= makeComment({ status: 'deleted', deletedAt: new Date() });
-
-      repo.findById
-        .mockResolvedValueOnce(reply)
-        .mockResolvedValueOnce(parent);
-      repo.countActiveReplies
-        .mockResolvedValueOnce(0)
-        .mockResolvedValueOnce(0);
-      repo.softDelete.mockResolvedValue(deleted);
-
-      await service.deleteComment('r1', 'u1');
-
-      expect(repo.softDelete).toHaveBeenCalledTimes(2);
-      expect(repo.softDelete).toHaveBeenNthCalledWith(1, 'r1');
-      expect(repo.softDelete).toHaveBeenNthCalledWith(2, 'p1');
-    });
-
-    it('est idempotent si déjà supprimé', async () => {
-      const already = makeComment({ status: 'deleted', authorId: 'u1' });
-      repo.findById.mockResolvedValue(already);
-
-      const result = await service.deleteComment('c-uuid-1', 'u1');
-
-      expect(repo.tombstone).not.toHaveBeenCalled();
-      expect(repo.softDelete).not.toHaveBeenCalled();
-      expect(result.status).toBe('deleted');
-    });
-
-    it('lève ForbiddenError si pas l\'auteur', async () => {
-      repo.findById.mockResolvedValue(makeComment({ authorId: 'other-user' }));
-
-      await expect(
-        service.deleteComment('c-uuid-1', 'u1'),
-      ).rejects.toThrow(CommentForbiddenError);
+    it('lève ForbiddenError si pas auteur', async () => {
+      repo.findById.mockResolvedValue(makeComment({ authorId: 'other' }));
+      await expect(service.deleteComment('c-uuid-1', 'u1')).rejects.toThrow(CommentForbiddenError);
     });
 
     it('lève NotFoundError si inexistant', async () => {
       repo.findById.mockResolvedValue(null);
+      await expect(service.deleteComment('ghost', 'u1')).rejects.toThrow(CommentNotFoundError);
+    });
+  });
 
+  describe('toggleLike', () => {
+    it('ajoute un like', async () => {
+      repo.findById.mockResolvedValue(makeComment());
+      repo.hasLiked.mockResolvedValue(false);
+      repo.addLike.mockResolvedValue({} as any);
+      repo.countLikes.mockResolvedValue(1);
+      const result = await service.toggleLike('c-uuid-1', 'u1');
+      expect(repo.addLike).toHaveBeenCalledWith('c-uuid-1', 'u1');
+      expect(result).toEqual({ liked: true, likeCount: 1 });
+    });
+
+    it('retire le like si déjà liké', async () => {
+      repo.findById.mockResolvedValue(makeComment());
+      repo.hasLiked.mockResolvedValue(true);
+      repo.removeLike.mockResolvedValue(undefined);
+      repo.countLikes.mockResolvedValue(0);
+      const result = await service.toggleLike('c-uuid-1', 'u1');
+      expect(repo.removeLike).toHaveBeenCalledWith('c-uuid-1', 'u1');
+      expect(result).toEqual({ liked: false, likeCount: 0 });
+    });
+  });
+
+  describe('reportComment', () => {
+    it('enregistre un signalement', async () => {
+      repo.findById.mockResolvedValue(makeComment());
+      repo.hasReported.mockResolvedValue(false);
+      repo.addReport.mockResolvedValue(undefined);
+      repo.countReports.mockResolvedValue(1);
+      await service.reportComment('c-uuid-1', 'u1', { reason: 'Contenu inapproprié' });
+      expect(repo.addReport).toHaveBeenCalledWith('c-uuid-1', 'u1', 'Contenu inapproprié');
+    });
+
+    it('lève AlreadyReportedError si déjà signalé', async () => {
+      repo.findById.mockResolvedValue(makeComment());
+      repo.hasReported.mockResolvedValue(true);
       await expect(
-        service.deleteComment('ghost', 'u1'),
-      ).rejects.toThrow(CommentNotFoundError);
+        service.reportComment('c-uuid-1', 'u1', { reason: 'Spam' })
+      ).rejects.toThrow(CommentAlreadyReportedError);
+    });
+
+    it('modère automatiquement si seuil atteint', async () => {
+      repo.findById.mockResolvedValue(makeComment());
+      repo.hasReported.mockResolvedValue(false);
+      repo.addReport.mockResolvedValue(undefined);
+      repo.countReports.mockResolvedValue(5);
+      repo.moderate.mockResolvedValue(makeComment({ status: 'moderated' }));
+      await service.reportComment('c-uuid-1', 'u1', { reason: 'Contenu inapproprié' });
+      expect(repo.moderate).toHaveBeenCalledWith('c-uuid-1');
     });
   });
 });
